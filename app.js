@@ -95,7 +95,8 @@
       const i = st.pvs.findIndex((p) => p.id === st.pv.id);
       if (i >= 0) st.pvs[i] = clone(st.pv); else st.pvs.push(clone(st.pv));
       touchDossier(st.pv.dossierId);
-      setSaveState('Enregistré sur la tablette', 'ok');
+      setSaveState('Enregistré sur cet appareil', 'ok');
+      markDirty();
     } catch (e) {
       setSaveState("Échec de l'enregistrement", 'bad');
       toast("L'enregistrement a échoué. Vérifiez l'espace libre de la tablette.", 'bad');
@@ -108,6 +109,7 @@
     await DB.put('dossiers', clone(d));
   }
   async function saveDossier(d) {
+    markDirty();
     d.updatedAt = Date.now();
     await DB.put('dossiers', clone(d));
     const i = st.dossiers.findIndex((x) => x.id === d.id);
@@ -402,7 +404,7 @@
             </details>
           </div>
         </div>
-        <details class="panel mt"><summary class="btn small ghost">Modifier la fiche du dossier</summary>
+        <details class="panel mt" ${!has(d.client) || !has(d.ref) ? 'open' : ''}><summary class="btn small ghost">Modifier la fiche du dossier</summary>
           <div class="grid mt">${DOSSIER_FIELDS.map((f) => fieldHTML(f, 'do:' + f.k, d[f.k], false)).join('')}</div>
           <button class="btn small ghost mt" data-act="suggestRef">Proposer la référence à partir du nom du Client</button>
           ${has(d.notesSuivi) || has(d.prochaineAction) || has(d.etat) ? `<div class="suivi"><span class="lbl">Depuis le suivi Excel</span>${d.etat ? `<p><b>Onglet :</b> ${esc(d.etat)}</p>` : ''}${has(d.prochaineAction) ? `<p><b>Prochaine action :</b> ${esc(d.prochaineAction)}</p>` : ''}${has(d.notesSuivi) ? `<p><b>Notes :</b> ${esc(d.notesSuivi)}</p>` : ''}</div>` : ''}
@@ -517,7 +519,7 @@
           </div>
           <div class="ed-actions">
             <span class="pill ${ro ? 'done' : 'draft'}">${ro ? 'Clôturé le ' + esc(P.fmtStamp(pv.closedAt)) : 'En cours'}</span>
-            <span id="save" class="save ok">${ro ? 'Lecture seule' : 'Enregistré sur la tablette'}</span>
+            <span id="save" class="save ok">${ro ? 'Lecture seule' : 'Enregistré sur cet appareil'}</span>
             <div class="row gap wrap">
               ${ro ? `<button class="btn primary" data-act="sendPDF">Envoyer le PDF</button><button class="btn ghost" data-act="newVersion">Nouvelle version</button>`
                 : `<button class="btn ghost" data-act="previewPDF">Aperçu PDF</button><button class="btn primary" data-act="closePV">Clôturer et générer le PDF</button>`}
@@ -1025,7 +1027,7 @@
   }
 
   /* ================= Sauvegarde et import ================= */
-  async function exportData(dossierIds, label) {
+  async function buildBackup(dossierIds) {
     const dossiers = st.dossiers.filter((d) => dossierIds.includes(d.id));
     const pvs = st.pvs.filter((p) => dossierIds.includes(p.dossierId));
     const ids = new Set();
@@ -1041,7 +1043,12 @@
       const r = await DB.get('blobs', id);
       if (r) blobs.push({ id, type: r.type, w: r.w, h: r.h, data: await blobToDataURL(r.blob) });
     }
-    const json = JSON.stringify({ app: 'pv-gauer', format: 1, exportedAt: new Date().toISOString(), config: st.config, dossiers, pvs, blobs });
+    const config = Object.assign({}, st.config); delete config.syncSeen; delete config.lastSyncWrite;
+    return { app: 'pv-gauer', format: 1, exportedAt: new Date().toISOString(), device: deviceName(), config, dossiers, pvs, blobs };
+  }
+  function deviceName() { return /Android|iPhone|iPad/i.test(navigator.userAgent) ? 'mobile' : 'ordinateur'; }
+  async function exportData(dossierIds, label) {
+    const json = JSON.stringify(await buildBackup(dossierIds));
     const name = `${label}_sauvegarde-PV_${today()}`;
     const asJson = new File([json], name + '.json', { type: 'application/json' });
     if (!navigator.canShare || navigator.canShare({ files: [asJson] })) return shareFile(new Blob([json], { type: 'application/json' }), name + '.json', name, '');
@@ -1051,6 +1058,13 @@
     let data;
     try { data = JSON.parse(await file.text()); } catch (e) { return toast("Ce fichier n'est pas une sauvegarde lisible.", 'bad'); }
     if (!data || data.app !== 'pv-gauer') return toast("Ce fichier n'est pas une sauvegarde de l'application PV.", 'bad');
+    if (st.pv) await savePV();
+    const { nb, skip } = await mergeBackup(data);
+    await loadAll();
+    toast(`Import terminé : ${nb} élément(s) ajouté(s) ou mis à jour, ${skip} déjà à jour.`);
+    render();
+  }
+  async function mergeBackup(data) {
     let nb = 0, skip = 0;
     for (const b of data.blobs || []) {
       if (await DB.get('blobs', b.id)) continue;
@@ -1066,9 +1080,96 @@
     }
     if (data.config && !st.config.logo && data.config.logo) { st.config.logo = data.config.logo; await saveConfig(); }
     if (data.config && !st.config.signature && data.config.signature) { st.config.signature = data.config.signature; await saveConfig(); }
-    await loadAll();
-    toast(`Import terminé : ${nb} élément(s) ajouté(s) ou mis à jour, ${skip} déjà à jour.`);
+    return { nb, skip };
+  }
+
+  /* ================= Synchronisation OneDrive (ordinateur) ================= */
+  const SYNC_FILE = 'PV-GAUER_synchro.json';
+  const syncSupported = () => 'showDirectoryPicker' in window;
+  const SY = { dir: null, timer: null, busy: false, state: 'off', last: null, err: '' };
+  async function syncLoad() {
+    if (!syncSupported()) return;
+    const r = await DB.get('meta', 'syncDir');
+    SY.dir = r ? r.v : null;
+    SY.state = SY.dir ? 'ready' : 'off';
+  }
+  function markDirty() {
+    if (!SY.dir) return;
+    clearTimeout(SY.timer);
+    SY.timer = setTimeout(() => syncNow(false), 20000);
+  }
+  async function syncPerm(interactive) {
+    const opts = { mode: 'readwrite' };
+    if (await SY.dir.queryPermission(opts) === 'granted') return true;
+    if (!interactive) return false;
+    return (await SY.dir.requestPermission(opts)) === 'granted';
+  }
+  async function chooseSyncDir() {
+    let h;
+    try { h = await window.showDirectoryPicker({ id: 'pv-gauer-synchro', mode: 'readwrite' }); }
+    catch (e) { return; }
+    SY.dir = h;
+    await DB.put('meta', { k: 'syncDir', v: h });
+    st.config.syncSeen = {}; st.config.lastSyncWrite = 0; await saveConfig();
+    await syncNow(true);
     render();
+  }
+  async function stopSync() {
+    if (!await confirmBox('Arrêter la synchronisation ?', "L'application cesse de lire et d'écrire dans le dossier OneDrive. Rien n'est supprimé, ni dans l'application ni dans le dossier.", 'Arrêter')) return;
+    SY.dir = null; SY.state = 'off';
+    await DB.put('meta', { k: 'syncDir', v: null });
+    render();
+  }
+  async function syncNow(interactive) {
+    if (!SY.dir || SY.busy) return;
+    SY.busy = true; syncBadge();
+    try {
+      if (!await syncPerm(interactive)) {
+        SY.state = 'perm'; syncBadge();
+        if (!SY.permAsked) { SY.permAsked = true; toast('Synchronisation OneDrive en attente de votre autorisation.', '', { label: 'Autoriser', fn: () => syncNow(true) }); }
+        return;
+      }
+      if (st.pv) await savePV();
+      const seen = st.config.syncSeen || {};
+      let merged = 0, read = 0;
+      for await (const [name, h] of SY.dir.entries()) {
+        if (h.kind !== 'file') continue;
+        if (name !== SYNC_FILE && !/sauvegarde-PV.*\.(json|txt)$/i.test(name)) continue;
+        const f = await h.getFile();
+        if ((seen[name] || 0) >= f.lastModified) continue;
+        let data; try { data = JSON.parse(await f.text()); } catch (e) { seen[name] = f.lastModified; continue; }
+        if (data && data.app === 'pv-gauer') { const r = await mergeBackup(data); merged += r.nb; read++; }
+        seen[name] = f.lastModified;
+      }
+      const lastChange = Math.max(0, ...st.dossiers.map((d) => d.updatedAt || 0), ...st.pvs.map((p) => p.updatedAt || 0));
+      if (merged || lastChange > (st.config.lastSyncWrite || 0) || !(await fileExists(SYNC_FILE))) {
+        if (merged) await loadAll();
+        const data = await buildBackup(st.dossiers.map((d) => d.id));
+        const fh = await SY.dir.getFileHandle(SYNC_FILE, { create: true });
+        const w = await fh.createWritable(); await w.write(JSON.stringify(data)); await w.close();
+        seen[SYNC_FILE] = (await fh.getFile()).lastModified;
+        st.config.lastSyncWrite = Date.now();
+      }
+      st.config.syncSeen = seen; await saveConfig();
+      SY.state = 'ok'; SY.last = Date.now(); SY.err = '';
+      if (merged) {
+        toast(`${merged} élément(s) repris depuis l'autre appareil.`);
+        const onPV = /^#pv\//.test(location.hash);
+        if (!onPV || interactive) render();
+      } else if (interactive) toast('Synchronisation à jour.');
+    } catch (e) {
+      SY.state = 'err'; SY.err = e.message || String(e);
+      if (interactive) toast('Synchronisation impossible : ' + SY.err, 'bad');
+    } finally { SY.busy = false; syncBadge(); }
+  }
+  window.PVSYNC = { SY, syncNow, mergeBackup, buildBackup };
+  async function fileExists(name) { try { await SY.dir.getFileHandle(name); return true; } catch (e) { return false; } }
+  function syncBadge() {
+    const el = $('#syncBadge'); if (!el) return;
+    const txt = { off: '', ready: 'Synchro OneDrive', ok: 'Synchro ' + (SY.last ? new Date(SY.last).toTimeString().slice(0, 5).replace(':', 'h') : ''), perm: 'Synchro à autoriser', err: 'Synchro en erreur' }[SY.state] || '';
+    el.textContent = SY.busy ? 'Synchro en cours' : txt;
+    el.hidden = !txt && !SY.busy;
+    el.className = 'syncb ' + (SY.state === 'err' || SY.state === 'perm' ? 'warn' : '');
   }
 
   async function importSuivi(file) {
@@ -1175,6 +1276,16 @@
             <h2 class="lbl mt">Vérifier un PDF</h2>
             <p class="muted small">Choisissez un PDF reçu ou retrouvé : l'application calcule son empreinte et dit s'il est identique, octet pour octet, à un PV clôturé.</p>
             <label class="btn ghost file">Choisir un PDF à vérifier<input type="file" accept="application/pdf,.pdf" data-verify="1" hidden></label>
+            <h2 class="lbl mt">Synchronisation avec OneDrive</h2>
+            ${syncSupported() ? (SY.dir ? `
+              <p>Dossier synchronisé : <b>${esc(SY.dir.name)}</b>. ${SY.state === 'ok' ? `Dernière synchronisation à ${esc(new Date(SY.last).toTimeString().slice(0, 5).replace(':', 'h'))}.` : SY.state === 'perm' ? 'En attente de votre autorisation.' : SY.state === 'err' ? 'Erreur : ' + esc(SY.err) : ''}</p>
+              <p class="muted small">Cet ordinateur écrit tout son travail dans ${esc(SYNC_FILE)} et reprend automatiquement les sauvegardes déposées dans ce dossier par le téléphone ou la tablette. En cas de modification des deux côtés, la plus récente l'emporte.</p>
+              <div class="row gap wrap"><button class="btn primary" data-act="syncNow">Synchroniser maintenant</button><button class="btn ghost" data-act="syncChoose">Changer de dossier</button><button class="btn ghost" data-act="syncStop">Arrêter</button></div>`
+              : `<p class="muted small">Choisissez un dossier dans OneDrive, par exemple GAUER Expertise, appli, PV-GAUER synchro. L'application y enregistre alors tout son travail et y reprend les sauvegardes du téléphone, sans manipulation.</p>
+              <button class="btn primary" data-act="syncChoose">Choisir le dossier de synchronisation</button>`)
+            : `<p class="muted small">Sur téléphone et tablette, l'échange avec l'ordinateur se fait par fichier :</p>
+              <p class="small"><b>Envoyer vers l'ordinateur :</b> « Sauvegarde complète vers OneDrive », puis choisir OneDrive et le dossier PV-GAUER synchro. L'ordinateur la reprend tout seul.</p>
+              <p class="small"><b>Récupérer le travail de l'ordinateur :</b> « Importer une sauvegarde », puis choisir ${esc(SYNC_FILE)} dans ce même dossier.</p>`}
             <h2 class="lbl mt">Sauvegardes</h2>
             <p class="muted small">La sauvegarde regroupe dossiers, PV, photos, signatures et PDF en un seul fichier. Enregistrez-la dans OneDrive pour la retrouver sur le PC ou réinstaller la tablette. L'import ajoute et met à jour, il ne supprime jamais rien.</p>
             <div class="row gap wrap"><button class="btn primary" data-act="exportAll">Sauvegarde complète vers OneDrive</button><button class="btn ghost" data-act="import">Importer une sauvegarde</button></div>
@@ -1292,6 +1403,9 @@
     if (act === 'restoreDossier') { const d = st.dossiers.find((x) => x.id === b.dataset.id); d.deleted = false; await saveDossier(d); toast('Dossier restauré.'); return render(); }
     if (act === 'restorePV') { const p = st.pvs.find((x) => x.id === b.dataset.id); p.deleted = false; await DB.put('pvs', p); toast('PV restauré.'); return render(); }
     if (act === 'exportDossier') { await savePV(); return exportData([st.dos.id], st.dos.ref || 'dossier'); }
+    if (act === 'syncChoose') return chooseSyncDir();
+    if (act === 'syncNow') { await syncNow(true); return render(); }
+    if (act === 'syncStop') return stopSync();
     if (act === 'exportAll') return exportData(st.dossiers.map((d) => d.id), 'GAUER');
     if (act === 'persist') { try { await navigator.storage.persist(); } catch (er) { /* refusé */ } return render(); }
     if (act === 'drawMySig') {
@@ -1463,6 +1577,9 @@
       } catch (e) { /* logo par défaut indisponible */ }
     }
     wireSearch();
+    await syncLoad();
+    if (SY.dir) { syncNow(false); setInterval(() => syncNow(false), 5 * 60000); }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && SY.dir) syncNow(false); });
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* refusé */ }
     const net = () => document.body.classList.toggle('offline', !navigator.onLine);
     window.addEventListener('online', net); window.addEventListener('offline', net); net();
