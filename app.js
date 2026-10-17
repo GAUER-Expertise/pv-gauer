@@ -124,8 +124,10 @@
     t.innerHTML = `<span>${esc(msg)}</span>` + (action ? `<button type="button">${esc(action.label)}</button>` : '');
     if (action) t.querySelector('button').onclick = () => { action.fn(); t.remove(); };
     $('#toasts').appendChild(t);
-    setTimeout(() => t.classList.add('out'), action ? 9000 : 4200);
-    setTimeout(() => t.remove(), action ? 9600 : 4800);
+    if (!action) {
+      setTimeout(() => t.classList.add('out'), 4200);
+      setTimeout(() => t.remove(), 4800);
+    }
   }
   function modal(html, opts = {}) {
     return new Promise((resolve) => {

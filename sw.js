@@ -1,5 +1,5 @@
 /* Mode hors ligne : toute l'application est gardée en cache sur la tablette */
-const VERSION = 'pv-gauer-1.3.0';
+const VERSION = 'pv-gauer-1.3.1';
 const FILES = [
   './', 'index.html', 'app.js', 'schema.js', 'pdf.js', 'excel.js', 'vendor/xlsx.mini.min.js', 'manifest.webmanifest',
   'vendor/jspdf.umd.min.js', 'vendor/jspdf.plugin.autotable.min.js',
