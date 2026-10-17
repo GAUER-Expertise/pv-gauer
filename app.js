@@ -68,6 +68,7 @@
   async function loadAll() {
     st.dossiers = await DB.all('dossiers');
     st.pvs = await DB.all('pvs');
+    const sv = await DB.get('meta', 'suivi'); if (sv) st.suivi = sv.v;
     const c = await DB.get('meta', 'config');
     st.config = Object.assign({ expertNom: EXPERT.nom, villeDefaut: 'Le Mans', gps: true, delaiObs: '15' }, c ? c.v : {});
   }
@@ -201,8 +202,7 @@
             <h1>Dossiers</h1>
           </div>
           <div class="row gap">
-            <input id="search" class="inp search" type="search" placeholder="Rechercher un dossier, un client, une commune" aria-label="Rechercher">
-            <button class="btn ghost" data-act="importSuivi">Importer le suivi Excel</button>
+            <button class="btn ghost" data-act="importSuivi">Ajouter depuis le suivi Excel</button>
             <button class="btn primary" data-act="newDossier">Nouveau dossier</button>
           </div>
         </div>
@@ -210,12 +210,15 @@
           const d = dossierOf(p);
           return `<a class="draft" href="#pv/${p.id}"><span class="ref">${esc(d.ref || '')}</span><b>${esc(S.TYPES[p.type].label)}</b><span class="muted">v${p.version} du ${esc(P.fmtShort(p.f.date))}</span></a>`;
         }).join('')}</div></div>` : ''}
-        <div class="row gap wrap filt"><div class="chips" role="group" aria-label="Filtre">${[['actifs', 'Dossiers actifs'], ['tous', 'Tous les dossiers']].map(([k, l]) => `<button type="button" class="chip${(st.filter || 'actifs') === k ? ' on' : ''}" data-act="filter" data-val="${k}">${l}</button>`).join('')}</div>${st.config.lastImport ? `<span class="muted small">Suivi Excel importé le ${esc(P.fmtStamp(st.config.lastImport))}</span>` : ''}</div>
+        <div class="row gap wrap filt"><div class="chips" role="group" aria-label="Filtre">${[['actifs', 'Dossiers actifs'], ['tous', 'Tous les dossiers']].map(([k, l]) => `<button type="button" class="chip${(st.filter || 'actifs') === k ? ' on' : ''}" data-act="filter" data-val="${k}">${l}</button>`).join('')}</div></div>
+        <p id="qinfo" class="qinfo"></p>
         <div id="dlist" class="dgrid"></div>
       </section>`;
     const list = () => {
-      const q = ($('#search').value || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-      const items = ds.filter((d) => (st.filter === 'tous' || q || !d.etat || d.etat === 'Actif')).filter((d) => !q || [d.ref, d.client, d.ville, d.adresse, d.objet, (d.intervenants || []).map((x) => x.nom).join(' ')].join(' ').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').includes(q));
+      const q = st.q || '';
+      const items = ds.filter((d) => (st.filter === 'tous' || q || !d.etat || d.etat === 'Actif')).filter((d) => !q || matchDossier(d, q));
+      const info = $('#qinfo');
+      if (info) info.innerHTML = q ? `${items.length} dossier${items.length > 1 ? 's' : ''} pour « ${esc(st.qRaw)} » <button class="btn small ghost" data-act="clearSearch">Effacer la recherche</button>` : '';
       $('#dlist').innerHTML = items.length ? items.map((d) => {
         const pvs = pvsOf(d.id);
         const open = pvs.filter((p) => p.statut !== 'clos').length;
@@ -228,13 +231,83 @@
       }).join('') : (ds.length ? `<p class="muted pad">Aucun dossier ne correspond à la recherche.</p>` : `
         <div class="empty">
           <h2>Aucun dossier pour l'instant</h2>
-          <p>Importez votre fichier « Suivi dossiers GAUER Expertise.xlsx » depuis OneDrive, ou créez un dossier au format RG-AAAA-MM-NOM, puis ouvrez-y un PV : réunion contradictoire, constat sur site, pré-livraison ou feuille de présence. Tout est enregistré sur la tablette et fonctionne sans réseau.</p>
-          <div class="row gap wrap"><button class="btn primary" data-act="importSuivi">Importer le suivi Excel</button><button class="btn ghost" data-act="newDossier">Créer un dossier</button><button class="btn ghost" data-act="import">Importer une sauvegarde</button></div>
+          <p>Ouvrez votre fichier « Suivi dossiers GAUER Expertise » depuis OneDrive et choisissez le dossier à préparer, ou créez un dossier au format RG-AAAA-MM-NOM, puis ouvrez-y un PV : réunion contradictoire, constat sur site, pré-livraison ou feuille de présence. Tout est enregistré sur la tablette et fonctionne sans réseau.</p>
+          <div class="row gap wrap"><button class="btn primary" data-act="importSuivi">Ajouter depuis le suivi Excel</button><button class="btn ghost" data-act="newDossier">Créer un dossier</button><button class="btn ghost" data-act="import">Importer une sauvegarde</button></div>
         </div>`);
     };
-    $('#search').addEventListener('input', list);
+    st.homeList = list;
     list();
   }
+
+  /* ================= Recherche ================= */
+  const fold = (t) => String(t == null ? '' : t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  function dossierFields(d) {
+    return [
+      ['Référence', d.ref], ['Client', d.client], ['Adresse', [d.adresse, d.cp, d.ville].filter(has).join(' ')], ['Mission', d.typeMission], ['Objet', d.objet],
+      ['Téléphone', d.tel], ['Courriel', d.mail], ['Partie adverse', d.partieAdverse], ['Notes', d.notesSuivi]
+    ].concat((d.intervenants || []).map((x) => ['Intervenant', [x.nom, x.qualite, x.societe, x.represente, x.mail, x.tel].filter(has).join(', ')]));
+  }
+  function matchDossier(d, q) {
+    const words = q.split(/\s+/).filter(Boolean);
+    const hay = fold(dossierFields(d).map((f) => f[1]).join(' '));
+    return words.every((w) => hay.includes(w));
+  }
+  function hitOf(d, q) {
+    const w = q.split(/\s+/).filter(Boolean);
+    const f = dossierFields(d).find(([k, v]) => k !== 'Référence' && k !== 'Client' && has(v) && w.some((x) => fold(v).includes(x)));
+    return f ? `${f[0]} : ${f[1]}` : '';
+  }
+  function mark(text, q) {
+    let out = esc(text);
+    q.split(/\s+/).filter((x) => x.length > 1).forEach((w) => {
+      const t = fold(text); const i = t.indexOf(w);
+      if (i >= 0) { const raw = String(text).slice(i, i + w.length); out = out.replace(esc(raw), `<mark>${esc(raw)}</mark>`); }
+    });
+    return out;
+  }
+  function renderResults() {
+    const box = $('#gresults'); const q = st.q;
+    if (!q) { box.hidden = true; return; }
+    const ds = liveDossiers().filter((d) => matchDossier(d, q));
+    const top = ds.slice(0, 8);
+    box.innerHTML = (top.length ? `<div class="glbl">${ds.length} dossier${ds.length > 1 ? 's' : ''}</div>` + top.map((d, i) => {
+      const hit = hitOf(d, q);
+      return `<a href="#d/${d.id}" class="${i === st.qSel ? 'sel' : ''}" data-gr="${i}"><span class="ref">${mark(d.ref || 'Sans référence', q)}</span><b>${mark(d.client || '', q)}</b><span class="muted small">${mark([d.adresse, d.ville].filter(has).join(', '), q)}</span>${hit ? `<span class="hit">${mark(hit, q)}</span>` : ''}</a>`;
+    }).join('') + (ds.length > top.length ? `<a href="#" data-act="allResults"><b>Voir les ${ds.length} dossiers</b></a>` : '') : '<div class="gnone">Aucun dossier ne correspond.</div>');
+    box.hidden = false;
+    st.qTop = top;
+  }
+  function onSearch(v) {
+    st.qRaw = v.trim(); st.q = fold(st.qRaw); st.qSel = -1;
+    const onHome = !location.hash || location.hash === '#';
+    if (onHome && st.homeList) {
+      st.homeList(); $('#gresults').hidden = true;
+      st.qTop = st.q ? liveDossiers().filter((d) => matchDossier(d, st.q)).slice(0, 8) : [];
+    } else renderResults();
+  }
+  function wireSearch() {
+    const inp = $('#gsearch');
+    inp.addEventListener('input', () => onSearch(inp.value));
+    inp.addEventListener('focus', () => { if (st.q && location.hash && location.hash !== '#') renderResults(); });
+    inp.addEventListener('keydown', (e) => {
+      const n = (st.qTop || []).length;
+      if (e.key === 'ArrowDown' && n) { e.preventDefault(); st.qSel = (st.qSel + 1) % n; renderResults(); }
+      else if (e.key === 'ArrowUp' && n) { e.preventDefault(); st.qSel = (st.qSel - 1 + n) % n; renderResults(); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (!st.q) return;
+        const list = liveDossiers().filter((d) => matchDossier(d, st.q));
+        const d = st.qSel >= 0 ? (st.qTop || [])[st.qSel] : (list.length === 1 ? list[0] : null);
+        closeResults(); inp.blur();
+        go(d ? '#d/' + d.id : '#');
+      } else if (e.key === 'Escape') { inp.value = ''; onSearch(''); closeResults(); }
+    });
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('#gresults a[data-gr]')) { closeResults(); return; }
+      if (!e.target.closest('.gsearch')) closeResults();
+    });
+  }
+  function closeResults() { const b = $('#gresults'); if (b) b.hidden = true; }
 
   function suggestRef(client) {
     const d = new Date();
@@ -260,23 +333,51 @@
     { k: 'ville', l: 'Commune', t: 'text' },
     { k: 'partieAdverse', l: 'Partie adverse ou entreprise en cause', t: 'text', w: 2 },
     { k: 'objet', l: 'Objet de la mission', t: 'textarea', w: 3 },
+    { k: 'pieces', l: 'Pièces en ma possession (non imprimé)', t: 'textarea', w: 3 },
     { k: 'notes', l: 'Notes internes (non imprimées)', t: 'textarea', w: 3 }
   ];
+  function synthFrom(d) {
+    const cut = (t, n) => { t = String(t || '').trim(); if (t.length <= n) return t; const c = t.slice(0, n); const k = Math.max(c.lastIndexOf('. '), c.lastIndexOf(' ; ')); return (k > n * 0.5 ? c.slice(0, k + 1) : c) + ' (suite dans le suivi Excel)'; };
+    return [
+      has(d.typeMission) ? `Mission : ${d.typeMission}.` : '',
+      has(d.lettre) ? `Lettre de mission : ${d.lettre}${has(d.statutMission) && d.statutMission !== '—' ? ', ' + d.statutMission.toLowerCase() : ''}.` : '',
+      has(d.dateVisite) ? `Visite : ${d.dateVisite}.` : '',
+      has(d.prochaineAction) ? `Prochaine action : ${cut(d.prochaineAction, 220)}` : '',
+      has(d.notesSuivi) ? `Notes : ${cut(d.notesSuivi, 450)}` : ''
+    ].filter(Boolean).join('\n');
+  }
   function renderDossier(main) {
     const d = st.dos;
     crumbs([['Dossiers', '#'], [d.ref || 'Nouveau dossier', '#d/' + d.id]]);
     const pvs = pvsOf(d.id);
     const trash = pvsOf(d.id, true);
+    const inter = d.intervenants || [];
+    const coord = (label, v, copy) => has(v) ? `<div class="coord"><span class="lbl2">${label}</span><span class="cv">${esc(v)}</span>${copy ? `<button type="button" class="btn small ghost" data-act="copy" data-val="${esc(v)}">Copier</button>` : ''}</div>` : '';
     main.innerHTML = `
       <section class="dossier">
         <div class="page-head">
-          <div><p class="eyebrow">Dossier</p><h1 class="ref-big">${esc(d.ref || 'Nouveau dossier')}</h1><p class="muted">${esc(d.client || '')}</p></div>
+          <div><p class="eyebrow">Dossier</p><h1 class="ref-big">${esc(d.ref || 'Nouveau dossier')}</h1></div>
           <div class="row gap wrap">
             <button class="btn ghost" data-act="exportDossier">Sauvegarder vers OneDrive</button>
             <button class="btn ghost" data-act="deleteDossier">Mettre à la corbeille</button>
           </div>
         </div>
-        <div class="split">
+        <div class="panel fiche">
+          <div class="fiche-client">
+            <h2 class="lbl">Client</h2>
+            <p class="cname">${esc(d.client || 'Client à renseigner')}${has(d.qualiteClient) ? ` <span class="muted small">${esc(d.qualiteClient)}</span>` : ''}</p>
+            ${coord('Téléphone', d.tel, true)}${coord('Courriel', d.mail, true)}
+            ${coord('Bien', [d.adresse, [d.cp, d.ville].filter(has).join(' ')].filter(has).join(', '), true)}
+            ${coord('Mission', d.typeMission)}
+            ${!has(d.tel) && !has(d.mail) && !has(d.adresse) ? '<p class="muted small">Coordonnées à compléter dans « Modifier la fiche du dossier ».</p>' : ''}
+          </div>
+          <div class="fiche-synth">
+            <div class="fld w3"><label for="f_do_synthese">Synthèse du dossier</label>
+              <textarea id="f_do_synthese" class="inp" data-b="do:synthese" rows="5" placeholder="Quelques lignes : désordre, demande du Client, point d'attention pour la visite">${esc(d.synthese || '')}</textarea></div>
+            ${has(d.notesSuivi) || has(d.prochaineAction) || has(d.typeMission) ? `<button type="button" class="btn small ghost" data-act="synthExcel">${has(d.synthese) ? 'Remplacer par le résumé du suivi Excel' : 'Remplir à partir du suivi Excel'}</button>` : ''}
+          </div>
+        </div>
+        <div class="split mt">
           <div class="panel">
             <h2 class="lbl">Nouveau PV</h2>
             <div class="types">
@@ -286,25 +387,27 @@
             <div class="pvlist">${pvs.length ? pvs.map(pvRow).join('') : '<p class="muted">Aucun PV dans ce dossier.</p>'}</div>
             ${trash.length ? `<details class="mt"><summary class="muted">Corbeille du dossier (${trash.length})</summary><div class="pvlist">${trash.map((p) => `<div class="pvrow"><span><b>${esc(S.TYPES[p.type].label)}</b> v${p.version}</span><button class="btn small ghost" data-act="restorePV" data-id="${p.id}">Restaurer</button></div>`).join('')}</div></details>` : ''}
           </div>
-          <div class="panel">
-            <h2 class="lbl">Fiche du dossier</h2>
-            <div class="grid">${DOSSIER_FIELDS.map((f) => fieldHTML(f, 'do:' + f.k, d[f.k], false)).join('')}</div>
-            <button class="btn small ghost mt" data-act="suggestRef">Proposer la référence à partir du nom du Client</button>
-            ${has(d.notesSuivi) || has(d.prochaineAction) || has(d.etat) ? `<div class="suivi"><span class="lbl">Depuis le suivi Excel</span>${d.etat ? `<p><b>Onglet :</b> ${esc(d.etat)}</p>` : ''}${has(d.prochaineAction) ? `<p><b>Prochaine action :</b> ${esc(d.prochaineAction)}</p>` : ''}${has(d.notesSuivi) ? `<p><b>Notes :</b> ${esc(d.notesSuivi)}</p>` : ''}</div>` : ''}
+          <div class="panel" id="intervenants">
+            <h2 class="lbl">Intervenants (${inter.length})</h2>
+            ${inter.length ? `<div class="ilist">${inter.map((it) => `<div class="irow"><b>${esc(it.nom || 'Sans nom')}</b><span class="muted small">${esc([it.qualite, it.societe].filter(has).join(', '))}</span><span class="small">${esc([it.tel, it.mail].filter(has).join(' • '))}</span>${it.convoque === 'Non' ? '<span class="pill muted-pill">Non convoqué</span>' : ''}</div>`).join('')}</div>` : '<p class="muted small">Aucun intervenant. Ils sont repris du suivi Excel, ou ajoutés ici, puis proposés dans chaque PV.</p>'}
+            <details class="mt" ${st.openInter ? 'open' : ''} id="interEdit"><summary class="btn small ghost">Modifier les intervenants</summary>
+              <div class="mt">${inter.map((it, i) => `
+                <div class="item">
+                  <div class="item-head"><b>${esc(it.nom || 'Intervenant ' + (i + 1))}</b>${itemTools('do:intervenants', i, inter.length)}</div>
+                  <div class="grid">${S.INTERVENANT_FIELDS.map((f) => fieldHTML(f, `do:intervenants.${i}.${f.k}`, it[f.k], false)).join('')}</div>
+                </div>`).join('')}
+              <button class="btn add" data-act="addInter">Ajouter un intervenant</button></div>
+            </details>
           </div>
         </div>
-        <div class="panel mt" id="intervenants">
-          <h2 class="lbl">Intervenants du dossier</h2>
-          <p class="muted small">Toutes les personnes concernées par l'expertise. Celles marquées « À convoquer : Oui » sont reprises automatiquement dans chaque nouveau PV. Une personne ajoutée sur place dans un PV rejoint cette liste à la clôture.</p>
-          ${(d.intervenants || []).map((it, i) => `
-            <div class="item">
-              <div class="item-head"><b>${esc(it.nom || 'Intervenant ' + (i + 1))}</b>${itemTools('do:intervenants', i, d.intervenants.length)}</div>
-              <div class="grid">${S.INTERVENANT_FIELDS.map((f) => fieldHTML(f, `do:intervenants.${i}.${f.k}`, it[f.k], false)).join('')}</div>
-            </div>`).join('')}
-          <button class="btn add" data-act="addInter">Ajouter un intervenant</button>
-        </div>
+        <details class="panel mt"><summary class="btn small ghost">Modifier la fiche du dossier</summary>
+          <div class="grid mt">${DOSSIER_FIELDS.map((f) => fieldHTML(f, 'do:' + f.k, d[f.k], false)).join('')}</div>
+          <button class="btn small ghost mt" data-act="suggestRef">Proposer la référence à partir du nom du Client</button>
+          ${has(d.notesSuivi) || has(d.prochaineAction) || has(d.etat) ? `<div class="suivi"><span class="lbl">Depuis le suivi Excel</span>${d.etat ? `<p><b>Onglet :</b> ${esc(d.etat)}</p>` : ''}${has(d.prochaineAction) ? `<p><b>Prochaine action :</b> ${esc(d.prochaineAction)}</p>` : ''}${has(d.notesSuivi) ? `<p><b>Notes :</b> ${esc(d.notesSuivi)}</p>` : ''}</div>` : ''}
+        </details>
       </section>`;
     $$('textarea', main).forEach(autosize);
+    const ie = $('#interEdit', main); if (ie) ie.addEventListener('toggle', () => { st.openInter = ie.open; });
   }
   function typeHint(k) {
     return {
@@ -494,12 +597,12 @@
         </div>`) +
         `<div class="photos">${(pv.photos || []).map((p, i) => `
           <figure class="photo">
-            <div class="thumb" data-thumb="${esc(p.ann || p.blob || '')}"><span class="tag">${esc(labels[p.id])}</span></div>
+            <div class="thumb" data-thumb="${esc(p.ann || p.blob || '')}"${ro ? '' : ` data-act="annotate" data-i="${i}" role="button" tabindex="0" aria-label="Dessiner sur la photo"`}><span class="tag">${esc(labels[p.id])}</span></div>
             <figcaption>
               <div class="pmeta muted small">${p.takenAt ? esc(P.fmtStamp(p.takenAt)) : ''}${p.lat != null ? ` • GPS ${(+p.lat).toFixed(5)}, ${(+p.lon).toFixed(5)}` : (p.kind === 'photo' && st.config.gps ? ' • sans position GPS' : '')}</div>
               ${fieldHTML({ k: 'zone', l: 'Zone', t: 'text' }, `pv:photos.${i}.zone`, p.zone, ro)}
               ${fieldHTML({ k: 'legende', l: 'Légende (une ligne)', t: 'text' }, `pv:photos.${i}.legende`, p.legende, ro)}
-              ${ro ? '' : `<div class="row gap wrap"><button class="btn small ghost" data-act="annotate" data-i="${i}">${p.kind === 'croquis' ? 'Modifier le croquis' : 'Annoter'}</button>${itemTools('photos', i, pv.photos.length)}</div>`}
+              ${ro ? '' : `<div class="row gap wrap"><button class="btn small primary" data-act="annotate" data-i="${i}">${p.kind === 'croquis' ? 'Modifier le croquis' : 'Dessiner sur la photo'}</button>${itemTools('photos', i, pv.photos.length)}</div>`}
             </figcaption>
           </figure>`).join('')}</div>` + ((pv.photos || []).length ? '' : '<p class="muted empty-sec">Aucune photo. Les photos et croquis sont numérotés dans l\'ordre et peuvent être rattachés à chaque constatation.</p>');
     } else if (s.kind === 'signatures') {
@@ -585,7 +688,7 @@
   }
 
   const COLORS = [['#E53935', 'Rouge'], ['#FFD400', 'Jaune'], ['#1A365D', 'Bleu marine'], ['#111111', 'Noir'], ['#FFFFFF', 'Blanc']];
-  const TOOLS = [['arrow', 'Flèche'], ['circle', 'Cercle'], ['rect', 'Cadre'], ['line', 'Trait'], ['cote', 'Cote'], ['free', 'Main levée'], ['text', 'Texte']];
+  const TOOLS = [['free', 'Crayon'], ['line', 'Trait droit'], ['arrow', 'Flèche'], ['circle', 'Cercle'], ['rect', 'Cadre'], ['cote', 'Cote'], ['text', 'Texte']];
   async function openDrawing(photo) {
     const isSketch = photo.kind === 'croquis';
     let base = null, W = 1600, H = 1131;
@@ -595,7 +698,7 @@
       base = await createImageBitmap(r.blob); W = base.width; H = base.height;
     }
     const shapes = clone(photo.shapes || []);
-    let tool = isSketch ? 'line' : 'arrow', color = isSketch ? '#1A365D' : '#E53935', size = 2, cur = null;
+    let tool = 'free', color = isSketch ? '#1A365D' : '#E53935', size = 2, cur = null;
     const ov = document.createElement('div');
     ov.className = 'draw';
     ov.innerHTML = `
@@ -967,47 +1070,66 @@
   }
 
   async function importSuivi(file) {
-    const X = window.PVEXCEL, N = X.norm;
     let res;
-    try { res = X.parse(window.XLSX, new Uint8Array(await file.arrayBuffer())); }
+    try { res = window.PVEXCEL.parse(window.XLSX, new Uint8Array(await file.arrayBuffer())); }
     catch (e) { return toast('Fichier Excel illisible : ' + (e.message || e), 'bad'); }
-    if (!res.dossiers.length && !res.intervenants.length) return toast("Aucun dossier trouvé. Choisissez le fichier « Suivi dossiers GAUER Expertise.xlsx ».", 'bad');
-    const byRef = new Map(st.dossiers.map((d) => [N(d.ref), d]));
-    const touched = new Set();
-    let created = 0, updated = 0, iAdd = 0, iUpd = 0;
-    const orphans = new Set();
-    for (const x of res.dossiers) {
-      let d = byRef.get(N(x.ref));
-      const isNew = !d;
-      if (!d) { d = { id: 'd' + uid(), createdAt: Date.now(), intervenants: [] }; byRef.set(N(x.ref), d); }
-      let changed = false;
-      Object.entries(x).forEach(([k, v]) => { if (has(v) && d[k] !== v) { d[k] = v; changed = true; } });
-      if (isNew) created++; else if (changed) updated++;
-      if (isNew || changed) touched.add(d);
-    }
-    for (const it of res.intervenants) {
-      const d = byRef.get(N(it.ref));
-      if (!d) { orphans.add(it.ref); continue; }
-      d.intervenants = d.intervenants || [];
-      const ex = d.intervenants.find((p) => sameName(p.nom, it.nom));
+    if (!res.dossiers.length) return toast("Aucun dossier trouvé. Choisissez le fichier « Suivi dossiers GAUER Expertise ».", 'bad');
+    st.suivi = { at: Date.now(), name: file.name, dossiers: res.dossiers, intervenants: res.intervenants };
+    try { await DB.put('meta', { k: 'suivi', v: st.suivi }); } catch (e) { /* liste gardée pour cette session seulement */ }
+    pickFromSuivi();
+  }
+  async function pickFromSuivi() {
+    const sv = st.suivi;
+    if (!sv) return $('#suiviFile').click();
+    const N = window.PVEXCEL.norm;
+    const nInter = (ref) => sv.intervenants.filter((x) => N(x.ref) === N(ref)).length;
+    const known = new Set(st.dossiers.filter((d) => !d.deleted).map((d) => N(d.ref)));
+    const rows = sv.dossiers.map((x, i) => ({ i, x, txt: fold([x.ref, x.client, x.adresse, x.ville, x.typeMission].join(' ')) }));
+    const r = await modal(`<h3>Choisir un dossier du suivi Excel</h3>
+      <p class="muted small">Fichier lu le ${esc(P.fmtStamp(sv.at))} : ${sv.dossiers.length} dossiers. Seul le dossier choisi est enregistré sur la tablette, avec ses coordonnées et ses intervenants.</p>
+      <input id="pickq" class="inp" type="search" placeholder="Tapez un nom, un numéro ou une commune" autocomplete="off">
+      <div id="pickl" class="picklist"></div>
+      <div class="mbtns"><button class="btn ghost" data-res="reload">Relire le fichier Excel</button><button class="btn ghost" data-res="no">Fermer</button></div>`,
+    { wide: true, onOpen: (m, close) => {
+      const draw = () => {
+        const q = fold($('#pickq', m).value).split(/\s+/).filter(Boolean);
+        const prime = (r) => fold(r.x.ref + ' ' + r.x.client);
+        const hits = rows.filter((r) => q.every((w) => r.txt.includes(w)))
+          .sort((a, b) => (q.every((w) => prime(b).includes(w)) ? 1 : 0) - (q.every((w) => prime(a).includes(w)) ? 1 : 0));
+        $('#pickl', m).innerHTML = hits.length ? hits.map(({ i, x }) => `<button type="button" class="pickrow" data-pick="${i}">
+          <span class="ref">${esc(x.ref)}</span><b>${esc(x.client || '')}</b>
+          <span class="muted small">${esc([x.adresse, x.ville].filter(has).join(', '))}${x.typeMission ? ' • ' + esc(x.typeMission) : ''}</span>
+          <span class="pickmeta">${x.etat && x.etat !== 'Actif' ? `<span class="pill muted-pill">${esc(x.etat)}</span>` : ''}${nInter(x.ref) ? `<span class="small muted">${nInter(x.ref)} intervenant(s)</span>` : ''}${known.has(N(x.ref)) ? '<span class="pill done">Déjà sur la tablette</span>' : ''}</span>
+        </button>`).join('') : '<p class="muted pad">Aucun dossier ne correspond.</p>';
+      };
+      $('#pickq', m).addEventListener('input', draw);
+      m.addEventListener('click', (e) => { const b = e.target.closest('[data-pick]'); if (b) close('pick:' + b.dataset.pick); });
+      draw();
+    } });
+    if (r === 'reload') return $('#suiviFile').click();
+    if (!r || !String(r).startsWith('pick:')) return;
+    const d = await importOne(sv.dossiers[+r.slice(5)]);
+    if (d) go('#d/' + d.id);
+  }
+  async function importOne(x) {
+    const N = window.PVEXCEL.norm, sv = st.suivi;
+    let d = st.dossiers.find((y) => N(y.ref) === N(x.ref));
+    const isNew = !d;
+    if (!d) d = { id: 'd' + uid(), createdAt: Date.now(), intervenants: [] };
+    if (d.deleted) d.deleted = false;
+    Object.entries(x).forEach(([k, v]) => { if (has(v)) d[k] = v; });
+    d.intervenants = d.intervenants || [];
+    let iAdd = 0;
+    sv.intervenants.filter((it) => N(it.ref) === N(x.ref)).forEach((it) => {
       const data = Object.assign({}, it); delete data.ref;
-      if (!ex) { d.intervenants.push(Object.assign({ id: uid() }, data)); iAdd++; touched.add(d); }
-      else {
-        let ch = false;
-        Object.entries(data).forEach(([k, v]) => { if (has(v) && ex[k] !== v) { ex[k] = v; ch = true; } });
-        if (ch) { iUpd++; touched.add(d); }
-      }
-    }
-    for (const d of touched) await saveDossier(d);
-    st.config.lastImport = Date.now(); await saveConfig();
-    const warns = res.warnings.concat(orphans.size ? [`Intervenants rattachés à un numéro absent des onglets de dossiers : ${Array.from(orphans).join(', ')}.`] : []);
-    render();
-    await modal(`<h3>Suivi Excel importé</h3>
-      <p>${created} dossier(s) créé(s), ${updated} mis à jour. ${iAdd} intervenant(s) ajouté(s), ${iUpd} mis à jour.</p>
-      <p class="muted small">Lu : ${esc(res.sheets.join(' • ') || 'aucun onglet reconnu')}. Rien n'a été supprimé dans l'application.</p>
-      ${res.intervenants.length ? '' : '<p class="small">Aucun onglet « Intervenants » dans ce fichier : les personnes à convoquer se saisissent alors dans chaque dossier.</p>'}
-      ${warns.length ? `<ul class="warns">${warns.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
-      <div class="mbtns"><button class="btn primary" data-res="ok">Fermer</button></div>`);
+      const ex = d.intervenants.find((p) => sameName(p.nom, it.nom));
+      if (!ex) { d.intervenants.push(Object.assign({ id: uid() }, data)); iAdd++; }
+      else Object.entries(data).forEach(([k, v]) => { if (has(v)) ex[k] = v; });
+    });
+    if (!has(d.synthese)) d.synthese = synthFrom(d);
+    await saveDossier(d);
+    toast(`${x.ref} ${isNew ? 'ajouté' : 'mis à jour'}${iAdd ? `, ${iAdd} intervenant(s) repris` : ''}.`);
+    return d;
   }
 
   /* ================= Réglages ================= */
@@ -1137,9 +1259,17 @@
     if (act === 'jump') { e.preventDefault(); const s = $('#sec-' + b.dataset.key); if (s) s.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (act === 'newDossier') return newDossier();
     if (act === 'import') return $('#importFile').click();
-    if (act === 'importSuivi') return $('#suiviFile').click();
+    if (act === 'importSuivi') return st.suivi ? pickFromSuivi() : $('#suiviFile').click();
     if (act === 'filter') { st.filter = b.dataset.val; return render(); }
+    if (act === 'synthExcel') {
+      if (has(st.dos.synthese) && !await confirmBox('Remplacer la synthèse ?', 'Le texte actuel sera remplacé par le résumé du suivi Excel.', 'Remplacer')) return;
+      st.dos.synthese = synthFrom(st.dos); await saveDossier(st.dos); return render();
+    }
+    if (act === 'copy') { try { await navigator.clipboard.writeText(b.dataset.val); toast('Copié.'); } catch (er) { toast('Copie impossible sur cet appareil.', 'bad'); } return; }
+    if (act === 'clearSearch') { $('#gsearch').value = ''; onSearch(''); return; }
+    if (act === 'allResults') { e.preventDefault(); closeResults(); return go('#'); }
     if (act === 'addInter') {
+      st.openInter = true;
       st.dos.intervenants = (st.dos.intervenants || []).concat([{ id: uid(), convoque: 'Oui' }]);
       await saveDossier(st.dos); render();
       const it = $$('#intervenants .item').pop(); if (it) { it.scrollIntoView({ block: 'center' }); const f = it.querySelector('input'); if (f) f.focus({ preventScroll: true }); }
@@ -1324,6 +1454,13 @@
       return;
     }
     await loadAll();
+    if (!st.config.logo && !st.config.logoDefault) {
+      try {
+        const r = await fetch('icons/logo-gauer.jpg');
+        if (r.ok) { st.config.logo = await saveBlob(await r.blob()); st.config.logoDefault = true; await saveConfig(); }
+      } catch (e) { /* logo par défaut indisponible */ }
+    }
+    wireSearch();
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* refusé */ }
     const net = () => document.body.classList.toggle('offline', !navigator.onLine);
     window.addEventListener('online', net); window.addEventListener('offline', net); net();

@@ -1,5 +1,5 @@
 PV GAUER, application de PV d'expertise sur tablette
-GAUER Expertise Bâtiment, version 1.2.0 du 17/10/2026
+GAUER Expertise Bâtiment, version 1.3.0 du 17/10/2026
 
 CONTENU DU DOSSIER
 index.html, app.js, schema.js, pdf.js, excel.js, sw.js, manifest.webmanifest : l'application
@@ -23,8 +23,8 @@ INSTALLATION SUR LA SAMSUNG
 1. Ouvrir l'adresse dans Chrome, avec du réseau.
 2. Menu (trois points), puis « Ajouter à l'écran d'accueil », puis « Installer ».
 3. Ouvrir l'application depuis l'écran d'accueil, puis Réglages :
-   charger le logo GAUER EXPERTISE et votre signature, toucher « Protéger le stockage ».
-4. Accueil, « Importer le suivi Excel » : choisir « Suivi dossiers GAUER Expertise.xlsm » dans OneDrive.
+   le logo est déjà en place ; importer votre signature (fichier PV-GAUER_signature.png dans OneDrive, dossier appli), toucher « Protéger le stockage ».
+4. Accueil, « Ajouter depuis le suivi Excel » : choisir le fichier de suivi dans OneDrive, puis toucher le dossier voulu.
 5. Pour vérifier le hors ligne : passer la tablette en mode avion et rouvrir l'application.
 
 MISE À JOUR

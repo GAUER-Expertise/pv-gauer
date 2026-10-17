@@ -15,6 +15,8 @@
     typeMission: ['typedemissiondesordre', 'typedemission', 'typemission', 'mission', 'typedexpertise'],
     dateVisite: ['datevisiteexpertise', 'datevisite', 'datedevisite'],
     prochaineAction: ['prochaineaction'],
+    lettre: ['lettredemission'],
+    statutMission: ['statutmission'],
     notesSuivi: ['notes', 'note', 'observations']
   };
   const INTER_COLS = {
@@ -68,7 +70,7 @@
           if (!ref && !client) return;
           if (!ref) { out.warnings.push(`Onglet « ${name} » : dossier « ${client} » sans numéro, ignoré.`); return; }
           const ad = splitAdresse(get('adresse'));
-          out.dossiers.push({ ref, client, tel: get('tel'), mail: get('mail'), adresse: ad.adresse, cp: ad.cp || '', ville: ad.ville || '', typeMission: get('typeMission'), notesSuivi: get('notesSuivi'), prochaineAction: get('prochaineAction'), dateVisite: get('dateVisite'), etat: ONGLETS[key] });
+          out.dossiers.push({ ref, client, tel: get('tel'), mail: get('mail'), adresse: ad.adresse, cp: ad.cp || '', ville: ad.ville || '', typeMission: get('typeMission'), notesSuivi: get('notesSuivi'), prochaineAction: get('prochaineAction'), dateVisite: get('dateVisite'), lettre: get('lettre'), statutMission: get('statutMission'), etat: ONGLETS[key] });
           n++;
         });
         out.sheets.push(`${name} : ${n} dossier(s)`);

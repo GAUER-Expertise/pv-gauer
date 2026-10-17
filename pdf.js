@@ -310,7 +310,7 @@
       if (sec.kind === 'photos') {
         const list = (pv.photos || []).filter((p) => p.blob || p.ann);
         if (!list.length) return;
-        heading(sec.title);
+        heading(sec.title, 100);
         const cw = (W - 6) / 2;
         for (let i = 0; i < list.length; i += 2) {
           const pair = list.slice(i, i + 2).map((p) => {
@@ -393,9 +393,9 @@
       doc.setPage(i);
       const logo = imgs.logo;
       if (logo && logo.w) {
-        const h = 13, w = Math.min(70, h * logo.w / logo.h);
+        const h = 15, w = Math.min(70, h * logo.w / logo.h);
         const hh = w * logo.h / logo.w;
-        try { doc.addImage(logo.data, logo.fmt, 105 - w / 2, 9 + (13 - hh) / 2, w, hh); } catch (e) { /* logo illisible */ }
+        try { doc.addImage(logo.data, logo.fmt, 105 - w / 2, 8.5 + (15 - hh) / 2, w, hh); } catch (e) { /* logo illisible */ }
       } else {
         spaced('GAUER EXPERTISE', 12.5, 2.2, 17.5);
         spaced('BÂTIMENT', 6.8, 2.4, 22, 'normal', GREY);

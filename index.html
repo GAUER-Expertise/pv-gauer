@@ -58,7 +58,21 @@ img { max-width: 100%; }
 .top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--band); color: var(--band-fg);
   padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .top-in { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; gap: 18px; }
-.brand { display: flex; flex-direction: column; line-height: 1; padding-right: 18px; border-right: 1px solid rgba(255,255,255,.22); }
+.brand { display: flex; align-items: center; gap: 10px; line-height: 1; padding-right: 18px; border-right: 1px solid rgba(255,255,255,.22); }
+.brand img { width: 40px; height: 38px; object-fit: contain; background: #fff; border-radius: 7px; padding: 2px; }
+.brand-t { display: flex; flex-direction: column; }
+.gsearch { position: relative; flex: 0 1 360px; min-width: 0; }
+.gsearch input { width: 100%; min-height: 42px; border-radius: 9px; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.1); color: var(--band-fg); padding: 0 12px 0 36px; font: 16px var(--body); background-image: radial-gradient(circle at 15px 19px, transparent 5px, rgba(255,255,255,.7) 5.5px, rgba(255,255,255,.7) 7px, transparent 7.5px); background-repeat: no-repeat; }
+.gsearch input::placeholder { color: rgba(255,255,255,.62); }
+.gsearch input:focus { outline: none; background-color: rgba(255,255,255,.18); border-color: rgba(255,255,255,.6); }
+.gresults { position: absolute; top: calc(100% + 6px); right: 0; width: min(520px, calc(100vw - 32px)); max-height: 70vh; overflow: auto; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 40px rgba(0,0,0,.25); z-index: 40; padding: 6px; }
+.gresults a { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 8px; }
+.gresults a:hover, .gresults a.sel { background: var(--tint); }
+.gresults .ref { color: var(--accent); font-weight: 600; }
+.gresults .hit { font-size: 13px; color: var(--muted); }
+.gresults .glbl { font: 600 12px var(--display); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); padding: 8px 12px 4px; }
+.gresults .gnone { padding: 12px; color: var(--muted); }
+mark { background: color-mix(in srgb, #F2B544 45%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
 .brand b { font: 700 17px var(--display); letter-spacing: .24em; }
 .brand span { font: 500 10px var(--display); letter-spacing: .38em; opacity: .7; margin-top: 4px; }
 #crumbs { flex: 1; min-width: 0; display: flex; gap: 8px; align-items: center; font: 600 16px var(--display); letter-spacing: .04em; overflow: hidden; white-space: nowrap; }
@@ -125,6 +139,29 @@ select.inp { appearance: none; background-image: linear-gradient(45deg, transpar
 
 /* Accueil */
 .search { width: min(420px, 100%); }
+.fiche { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 24px; }
+.cname { font: 700 26px/1.15 var(--display); margin: 0 0 12px; }
+.coord { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line-2); }
+.coord .cv { overflow-wrap: anywhere; font-size: 17px; user-select: text; }
+.lbl2 { font: 600 12px var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.fiche-synth { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.fiche-synth .fld { width: 100%; }
+.ilist { display: flex; flex-direction: column; }
+.irow { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-bottom: 1px solid var(--line-2); }
+.irow .pill { align-self: flex-start; margin-top: 4px; }
+details > summary { list-style: none; } details > summary::-webkit-details-marker { display: none; }
+details.panel > summary { margin: -4px 0; }
+.picklist { display: flex; flex-direction: column; gap: 6px; max-height: 55vh; overflow: auto; margin-top: 12px; }
+.pickrow { text-align: left; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); cursor: pointer; font: inherit; color: inherit; }
+.pickrow:hover, .pickrow:focus-visible { border-color: var(--accent); background: var(--tint); }
+.pickrow .ref { color: var(--accent); font-weight: 600; grid-column: 1; }
+.pickrow b, .pickrow > .muted { grid-column: 1; }
+.pickmeta { grid-column: 2; grid-row: 1 / span 3; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; justify-content: center; }
+.thumb[data-act] { cursor: crosshair; }
+.draw-bar .seg button { min-height: 48px; padding: 0 14px; font-size: 15px; }
+.draw-bar .colors button { width: 44px; height: 44px; }
+.qinfo { margin: -4px 0 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; color: var(--muted); }
+.qinfo:empty { display: none; }
 .dgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
 .dcard { display: flex; flex-direction: column; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; min-height: 140px; }
 .dcard .ref { color: var(--accent); font-weight: 600; }
@@ -145,6 +182,7 @@ select.inp { appearance: none; background-image: linear-gradient(45deg, transpar
 .draft-list { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
 .draft { flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; border-radius: var(--r); background: var(--tint); border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent); min-width: 230px; }
 .draft .ref { color: var(--accent); }
+.dgrid > .empty, .dgrid > p { grid-column: 1 / -1; }
 .empty { background: var(--surface); border: 1px dashed var(--line); border-radius: var(--r); padding: 30px; max-width: 720px; }
 .empty h2 { font: 700 24px var(--display); margin: 0 0 8px; }
 .empty p { margin: 0 0 18px; max-width: 60ch; }
@@ -253,6 +291,7 @@ details summary { cursor: pointer; padding: 8px 0; }
 .toast.out { opacity: 0; transform: translateY(8px); }
 
 @media (max-width: 1020px) {
+  .fiche { grid-template-columns: minmax(0, 1fr); }
   .split { grid-template-columns: minmax(0, 1fr); }
   .ed-body { grid-template-columns: minmax(0, 1fr); }
   .secnav { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 62px); z-index: 10; flex-direction: row; overflow-x: auto; background: var(--bg); padding: 8px 0; margin: -8px 0 0; }
@@ -265,9 +304,13 @@ details summary { cursor: pointer; padding: 8px 0; }
   .grid { grid-template-columns: minmax(0, 1fr); }
   .fld.w2 { grid-column: auto; }
   .types { grid-template-columns: 1fr; }
+  .fiche { grid-template-columns: minmax(0, 1fr); }
+  .coord { grid-template-columns: minmax(0, 1fr) auto; } .coord .lbl2 { grid-column: 1 / -1; }
   .ck { grid-template-columns: minmax(0, 1fr); padding-left: 8px; }
   .seg { overflow-x: auto; }
-  .brand { display: none; }
+  .brand-t, #crumbs { display: none; }
+  .brand { border-right: 0; padding-right: 0; }
+  .gsearch { flex: 1 1 auto; }
   .net { display: none; }
   .asset-row { grid-template-columns: minmax(0, 1fr); }
   .photos, .sigs { grid-template-columns: minmax(0, 1fr); }
@@ -278,8 +321,12 @@ details summary { cursor: pointer; padding: 8px 0; }
 <body>
 <header class="top">
   <div class="top-in">
-    <a class="brand" href="#" aria-label="Accueil"><b>GAUER</b><span>PV D'EXPERTISE</span></a>
+    <a class="brand" href="#" aria-label="Accueil"><img src="icons/logo-gauer.jpg" alt="" width="40" height="38"><span class="brand-t"><b>GAUER</b><span>PV D'EXPERTISE</span></span></a>
     <nav id="crumbs" aria-label="Fil d'Ariane"></nav>
+    <div class="gsearch" role="search">
+      <input id="gsearch" type="search" placeholder="Rechercher un dossier, un client, une personne" aria-label="Rechercher dans les dossiers" autocomplete="off">
+      <div id="gresults" class="gresults" hidden></div>
+    </div>
     <span class="net"><span class="on">En ligne</span><span class="off">Hors ligne</span></span>
     <a class="gear" href="#reglages">Réglages</a>
   </div>
@@ -288,7 +335,7 @@ details summary { cursor: pointer; padding: 8px 0; }
 <div id="toasts" aria-live="polite"></div>
 <input id="importFile" type="file" accept=".json,.txt,application/json,text/plain" hidden>
 <input id="suiviFile" type="file" accept=".xlsx,.xlsm,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden>
-<script>window.PV_VERSION = '1.2.0';</script>
+<script>window.PV_VERSION = '1.3.0';</script>
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="vendor/jspdf.plugin.autotable.min.js"></script>
 <script src="vendor/xlsx.mini.min.js"></script>
