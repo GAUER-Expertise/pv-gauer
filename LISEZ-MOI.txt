@@ -1,0 +1,36 @@
+PV GAUER, application de PV d'expertise sur tablette
+GAUER Expertise Bâtiment, version 1.2.0 du 17/10/2026
+
+CONTENU DU DOSSIER
+index.html, app.js, schema.js, pdf.js, excel.js, sw.js, manifest.webmanifest : l'application
+fonts, icons, vendor : polices, icônes et bibliothèques (PDF, Excel), embarquées pour le hors ligne
+
+Ne pas ouvrir index.html en double-cliquant dessus : l'application doit être servie par une adresse web
+en https pour s'installer sur la tablette et fonctionner hors ligne.
+
+MISE EN LIGNE SUR GITHUB PAGES (une seule fois)
+1. Créer un compte gratuit sur github.com.
+2. Créer un dépôt nommé pv-gauer (bouton « New repository »), visibilité Public.
+3. Dans le dépôt : « Add file », puis « Upload files ». Décompresser ce zip sur l'ordinateur et glisser
+   tout le contenu du dossier (fichiers et sous-dossiers fonts, icons, vendor), pas le dossier lui-même.
+   Valider avec « Commit changes ».
+4. Dans le dépôt : Settings, puis Pages. Source : « Deploy from a branch », branche main, dossier / (root).
+   Enregistrer. Après une à deux minutes, l'adresse s'affiche : https://NOM-UTILISATEUR.github.io/pv-gauer/
+
+Le code est public, vos données ne le sont pas : dossiers, PV, photos et signatures restent sur la tablette.
+
+INSTALLATION SUR LA SAMSUNG
+1. Ouvrir l'adresse dans Chrome, avec du réseau.
+2. Menu (trois points), puis « Ajouter à l'écran d'accueil », puis « Installer ».
+3. Ouvrir l'application depuis l'écran d'accueil, puis Réglages :
+   charger le logo GAUER EXPERTISE et votre signature, toucher « Protéger le stockage ».
+4. Accueil, « Importer le suivi Excel » : choisir « Suivi dossiers GAUER Expertise.xlsm » dans OneDrive.
+5. Pour vérifier le hors ligne : passer la tablette en mode avion et rouvrir l'application.
+
+MISE À JOUR
+Remplacer les fichiers dans le dépôt GitHub par ceux de la nouvelle version. À la prochaine ouverture avec
+du réseau, l'application propose « Mettre à jour ». Les données de la tablette sont conservées.
+
+SAUVEGARDE
+Réglages, « Sauvegarde complète vers OneDrive » : un fichier regroupe dossiers, PV, photos, signatures et PDF.
+À faire régulièrement : si la tablette est perdue ou réinitialisée, c'est la seule copie des PV non envoyés.
